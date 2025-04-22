@@ -1,0 +1,17 @@
+# File introduces automated checks triggered on git events
+# to enable run `pip install pre-commit && pre-commit install`
+
+repos:
+  - repo: local
+    hooks:
+      - id: clang-format
+        name: clang-format
+        language: system
+        entry: clang-format
+        args: [-i]
+        files: \.(c|cu|cc|cxx|cpp|h|hpp|hxx|cuh)$
+      - id: cpplint
+        name: cpplint
+        language: system
+        entry: cpplint
+        files: \.(c|cu|cc|cxx|cpp|h|hpp|hxx|cuh)$

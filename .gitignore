@@ -1,0 +1,11 @@
+*.pyc
+*.so
+*.o
+*cache*
+.build*
+*.npy
+bin/*
+*.log
+build*
+docs/html
+.vscode/*
