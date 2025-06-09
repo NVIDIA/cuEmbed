@@ -51,6 +51,9 @@ def cuemb_embedding(
 
 @cuemb_embedding.register_fake
 def _(params : torch.Tensor, idx : torch.Tensor, offsets : torch.Tensor, weights : torch.Tensor = None):
-  return torch.empty_like(params).reshape([offsets.shape[0]-1, params.shape[1]])
+  batch_size = offsets.shape[0] - 1
+  embedding_dim = params.shape[1]
+  return torch.empty((batch_size, embedding_dim), device=params.device, dtype=params.dtype)
+
 
 cuemb_embedding.register_autograd(cuembed_backward, setup_context=setup_context)
