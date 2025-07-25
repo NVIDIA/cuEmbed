@@ -165,8 +165,8 @@ std::tuple<int, int> DivideRowIntoVectors(const int embed_width) {
   // Targeting LDG.E.128 for each load instruction.
   // Thus requiring each load to be 16 bytes.
   // If not possible, reduce the load width.
-  int bytes_per_load = 16;
-  if (bytes_per_row % 16 == 0) {
+  int bytes_per_load = 8;
+  if ((bytes_per_row % 16 == 0) && (bytes_per_row > 64)) {
     bytes_per_load = 16;
   } else if (bytes_per_row % 8 == 0) {
     bytes_per_load = 8;
