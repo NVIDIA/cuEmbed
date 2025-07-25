@@ -270,7 +270,7 @@ void EmbeddingForward(const InputT* params,
 
   auto [element_per_load, threads_per_sample, samples_per_cta] =
       GetKernelLaunchParams<ElemT, IndexT>(
-          embed_width, num_hots, weights == nullptr);
+          embed_width, num_hots, weights != nullptr);
   dim3 launch_block(embed_width / element_per_load, samples_per_cta, 1);
   dim3 launch_grid((batch_size + samples_per_cta - 1) / samples_per_cta, 1, 1);
   size_t smem_size = samples_per_cta * num_hots * sizeof(IndexT);
