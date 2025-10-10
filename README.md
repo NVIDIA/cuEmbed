@@ -20,7 +20,7 @@ We recommend using [CMake Package Manager (CPM)](https://github.com/cpm-cmake/CP
 ```
 CPMAddPackage(
   NAME cuembed
-  GIT_REPOSITORY https://rep_ro:${GITLAB_TOKEN}@gitlab-master.nvidia.com/compute/psx/recommender/cuembed.git
+  GIT_REPOSITORY https://github.com/NVIDIA/cuEmbed.git
   GIT_TAG main
   OPTIONS
     "BUILD_TESTS OFF"
@@ -68,7 +68,7 @@ In the above example, we call `EmbeddingForward` with the corresponding data poi
 
 Please refer to `utils/src/embedding_allocation.cu` for more examples, including index transposition and backward propagation. 
 
-Detailed descriptions of the full API and parameters can be found in [cuembed/README.md](https://gitlab-master.nvidia.com/compute/psx/recommender/cuembed/-/blob/main/cuembed/README.md?ref_type=heads).
+Detailed descriptions of the full API and parameters can be found in [cuembed/README.md](cuembed/README.md).
 
 ## Building cuEmbed tests and benchmarks
 Since cuEmbed is header-only, there is nothing to build to use it.
@@ -76,7 +76,7 @@ To build the tests and benchmarks:
 
 ### Build From Source
 ```bash
-git clone --recursive https://gitlab-master.nvidia.com/compute/psx/recommender/cuembed
+git clone --recursive https://github.com/NVIDIA/cuEmbed.git
 cd cuembed
 mkdir build
 cd build
