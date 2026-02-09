@@ -121,4 +121,4 @@ Example:
 ## Requirements
 - nvcc 12.0+
 - C++ 17
-- Volta+
+- Ampere+

@@ -74,6 +74,7 @@ class FeatureGenerator {
   bool permute_ = false;
   std::vector<IndexType> permutation_;
   std::vector<IndexType> inverse_permutation_;
+  std::default_random_engine rng_;
 };
 
 // PowerLaw type specifies the type of power law distribution used in the
