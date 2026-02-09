@@ -29,19 +29,13 @@ namespace cuembed {
 enum class CombineMode { kSum, kMean, kConcat };
 
 // Various vectorized types and support functions.
-typedef struct __align__(32) {
-  float a, b, c, d, e, f, g, h;
-}
+typedef struct __align__(32) { float a, b, c, d, e, f, g, h; }
 float8;
 
-typedef struct __align__(16) {
-  __half a, b, c, d, e, f, g, h;
-}
+typedef struct __align__(16) { __half a, b, c, d, e, f, g, h; }
 half8;
 
-typedef struct __align__(8) {
-  __half x, y, z, w;
-}
+typedef struct __align__(8) { __half x, y, z, w; }
 half4;
 
 // VecCast functions for float <=> half, float2 <=> half2, float4 <=> half4, and

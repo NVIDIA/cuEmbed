@@ -18,8 +18,8 @@ set(CMAKE_CXX_STANDARD 17)
 project(cuembed CXX CUDA)
 enable_language(CUDA)
 
-set(CMAKE_CUDA_ARCHITECTURES 70 75 80 90)
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --ptxas-options=-v")
+set(CMAKE_CUDA_ARCHITECTURES 80 90 100)
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --ptxas-options=-v -diag-suppress=970")
 
 set(ABSL_PROPAGATE_CXX_STD ON)
 

@@ -65,7 +65,8 @@ FeatureGenerator<IndexType>::FeatureGenerator(const IndexType num_categories,
     this->permutation_.resize(num_categories + 1);
     this->inverse_permutation_.resize(num_categories + 1);
     std::iota(this->permutation_.begin(), this->permutation_.end(), 0);
-    std::random_shuffle(this->permutation_.begin(), this->permutation_.end());
+    std::shuffle(
+        this->permutation_.begin(), this->permutation_.end(), this->rng_);
 
     for (IndexType i = 0; i < num_categories + 1; ++i) {
       this->inverse_permutation_[this->permutation_[i]] = i;
@@ -96,7 +97,7 @@ std::vector<IndexType> FeatureGenerator<IndexType>::getCategoryIndices() {
   }
 
   if (this->shuffle_) {
-    std::random_shuffle(indices.begin(), indices.end());
+    std::shuffle(indices.begin(), indices.end(), this->rng_);
   }
 
   return indices;
