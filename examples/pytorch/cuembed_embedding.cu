@@ -15,7 +15,6 @@ torch::Tensor cuembed_embedding_forward(const torch::Tensor params,
   AT_ASSERT(indices.is_cuda());
   AT_ASSERT(offsets.is_cuda());
   AT_ASSERT(params.is_cuda());
-  AT_ASSERT(params.is_contiguous());
   AT_ASSERT(params.scalar_type() == torch::ScalarType::Float);
   if (weights.defined()) {
     AT_ASSERT(weights.scalar_type() == torch::ScalarType::Float);
@@ -32,12 +31,17 @@ torch::Tensor cuembed_embedding_forward(const torch::Tensor params,
 
   AT_ASSERT(mode == "sum");
   auto combine_mode = cuembed::CombineMode::kSum;
+
+  auto params_c = params.contiguous();
+  auto indices_c = indices.contiguous();
+  auto offsets_c = offsets.contiguous();
+  auto weights_c = weights.defined() ? weights.contiguous() : weights;
   cuembed::EmbeddingForward(
-      params.data_ptr<float>(),
+      params_c.data_ptr<float>(),
       embed_width,
-      indices.contiguous().data_ptr<IndexType>(),
-      offsets.contiguous().data_ptr<IndexType>(),
-      weights.defined() ? weights.contiguous().data_ptr<float>() : nullptr,
+      indices_c.data_ptr<IndexType>(),
+      offsets_c.data_ptr<IndexType>(),
+      weights_c.defined() ? weights_c.data_ptr<float>() : nullptr,
       batch_size,
       0,
       combine_mode,
@@ -55,7 +59,8 @@ torch::Tensor cuembed_extract_row_ids_from_csr(const torch::Tensor offsets,
 
   int batch_size = offsets.size(0);
   auto row_ids = torch::empty(nnz, offsets.options());
-  cuembed::ExtractRowIdsFromCSR(offsets.data_ptr<IndexType>(),
+  auto offsets_c = offsets.contiguous();
+  cuembed::ExtractRowIdsFromCSR(offsets_c.data_ptr<IndexType>(),
                                 batch_size,
                                 row_ids.mutable_data_ptr<IndexType>(),
                                 at::cuda::getCurrentCUDAStream());
@@ -76,6 +81,9 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> cuembed_transpose(
 
   int nnz = rows.size(0);
   using IndexType = int64_t;
+  auto rows_c = rows.contiguous();
+  auto cols_c = cols.contiguous();
+  auto weights_c = weights.defined() ? weights.contiguous() : weights;
   auto transpose_rows = torch::empty(nnz, rows.options());
   auto transpose_cols = torch::empty(nnz, cols.options());
 
@@ -86,9 +94,9 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> cuembed_transpose(
 
   size_t lwork = 0;
   cuembed::Transpose<IndexType, float>(
-      rows.data_ptr<IndexType>(),
-      cols.data_ptr<IndexType>(),
-      weights.defined() ? weights.contiguous().data_ptr<float>() : nullptr,
+      rows_c.data_ptr<IndexType>(),
+      cols_c.data_ptr<IndexType>(),
+      weights_c.defined() ? weights_c.data_ptr<float>() : nullptr,
       nnz,
       transpose_rows.mutable_data_ptr<IndexType>(),
       transpose_cols.mutable_data_ptr<IndexType>(),
@@ -98,9 +106,9 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> cuembed_transpose(
       at::cuda::getCurrentCUDAStream());
   auto work = torch::empty(lwork, at::device(rows.device()).dtype(at::kByte));
   cuembed::Transpose<IndexType, float>(
-      rows.data_ptr<IndexType>(),
-      cols.data_ptr<IndexType>(),
-      weights.defined() ? weights.contiguous().data_ptr<float>() : nullptr,
+      rows_c.data_ptr<IndexType>(),
+      cols_c.data_ptr<IndexType>(),
+      weights_c.defined() ? weights_c.data_ptr<float>() : nullptr,
       nnz,
       transpose_rows.mutable_data_ptr<IndexType>(),
       transpose_cols.mutable_data_ptr<IndexType>(),
@@ -120,7 +128,6 @@ torch::Tensor cuembed_embedding_backward(
   AT_ASSERT(transpose_indices.is_cuda());
   AT_ASSERT(transpose_sample_ids.is_cuda());
   AT_ASSERT(y_grad.is_cuda());
-  AT_ASSERT(y_grad.is_contiguous());
 
   AT_ASSERT(transpose_indices.scalar_type() == torch::ScalarType::Long);
   AT_ASSERT(transpose_sample_ids.scalar_type() == torch::ScalarType::Long);
@@ -133,18 +140,24 @@ torch::Tensor cuembed_embedding_backward(
   auto grad_embedding =
       torch::zeros(num_categories * embed_width, y_grad.options());
 
+  auto y_grad_c = y_grad.contiguous();
+  auto transpose_indices_c = transpose_indices.contiguous();
+  auto transpose_sample_ids_c = transpose_sample_ids.contiguous();
+  auto transpose_weights_c = transpose_weights.defined()
+                                 ? transpose_weights.contiguous()
+                                 : transpose_weights;
+
   // Call backward
   cuembed::EmbeddingBackward<float, IndexType>(
-      y_grad.data_ptr<float>(),
+      y_grad_c.data_ptr<float>(),
       embed_width,
       num_categories,
       nnz,
-      transpose_indices.contiguous().data_ptr<IndexType>(),
-      transpose_sample_ids.contiguous().data_ptr<IndexType>(),
+      transpose_indices_c.data_ptr<IndexType>(),
+      transpose_sample_ids_c.data_ptr<IndexType>(),
       nullptr, /*transpose_remapped_indices*/
-      transpose_weights.defined()
-          ? transpose_weights.contiguous().data_ptr<float>()
-          : nullptr,
+      transpose_weights_c.defined() ? transpose_weights_c.data_ptr<float>()
+                                    : nullptr,
       true, /*skip_grad_init*/
       grad_embedding.mutable_data_ptr<float>(),
       nullptr, /*inverse_mapping*/
@@ -156,19 +169,22 @@ torch::Tensor cuembed_embedding_backward(
 TORCH_LIBRARY(cuembed_pyt, m) {
   m.def(
       "cuembed_extract_row_ids_from_csr(Tensor offsets, int nnz)"
-      " ->Tensor",
-      &cuembed_extract_row_ids_from_csr);
+      " ->Tensor");
   m.def(
       "cuembed_transpose(Tensor rows, Tensor cols, Tensor weights) ->"
-      " (Tensor, Tensor, Tensor)",
-      &cuembed_transpose);
+      " (Tensor, Tensor, Tensor)");
   m.def(
       "cuembed_embedding_forward(Tensor params, Tensor indices,"
-      " Tensor offsets, Tensor weights, str mode) -> Tensor",
-      &cuembed_embedding_forward);
+      " Tensor offsets, Tensor weights, str mode) -> Tensor");
   m.def(
       "cuembed_embedding_backward(Tensor y_grad, int num_categories,"
       " Tensor transpose_indices, Tensor transpose_sample_ids, Tensor "
-      "transpose_weights) -> Tensor",
-      &cuembed_embedding_backward);
+      "transpose_weights) -> Tensor");
+}
+
+TORCH_LIBRARY_IMPL(cuembed_pyt, CUDA, m) {
+  m.impl("cuembed_extract_row_ids_from_csr", &cuembed_extract_row_ids_from_csr);
+  m.impl("cuembed_transpose", &cuembed_transpose);
+  m.impl("cuembed_embedding_forward", &cuembed_embedding_forward);
+  m.impl("cuembed_embedding_backward", &cuembed_embedding_backward);
 }

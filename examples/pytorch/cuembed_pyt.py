@@ -1,8 +1,4 @@
-from absl import app
-from absl import flags
-
 import torch
-from torch.nn import functional as F
 
 torch.ops.load_library("../../build/examples/pytorch/libcuembed_pyt.so")
 
@@ -27,33 +23,55 @@ def cuembed_backward(ctx, out_grad):
   sample_ids = cuembed_extract_row_ids_from_csr(offsets[:-1], nnz)
   transpose_indices, transpose_sample_ids, transpose_weights = \
     cuembed_transpose(sample_ids, idx, weights)
-  
+
   # This means weights = None during forward
   if(transpose_weights.numel() == 0):
       transpose_weights = None
-  
+
   grad_embedding = cuembed_embedding_backward(
       out_grad, num_categories, transpose_indices, transpose_sample_ids, transpose_weights)
 
   # no grad for indices, offsets, or weights
   return grad_embedding, None, None, None
 
-def setup_context(ctx, inputs, output):
-  params, idx, offsets, weights = inputs
-  ctx.save_for_backward(idx, offsets, weights)
-  ctx.num_categories = params.size(0)
+class _CuEmbEmbedding(torch.autograd.Function):
+  @staticmethod
+  def forward(ctx, params, idx, offsets, weights=None):
+    ctx.save_for_backward(idx, offsets, weights)
+    ctx.num_categories = params.size(0)
+    return cuembed_forward(params, idx, offsets, weights)
 
-# Need to register this as a custom op to allow torch.compile to work
-@torch.library.custom_op("cuemb::cuemb_embedding", mutates_args=())
-def cuemb_embedding(
-  params : torch.Tensor, idx : torch.Tensor, offsets : torch.Tensor, weights : torch.Tensor = None) -> torch.Tensor:
-  return cuembed_forward(params, idx, offsets, weights)
+  @staticmethod
+  def backward(ctx, out_grad):
+    return cuembed_backward(ctx, out_grad)
 
-@cuemb_embedding.register_fake
-def _(params : torch.Tensor, idx : torch.Tensor, offsets : torch.Tensor, weights : torch.Tensor = None):
+def cuemb_embedding(params, idx, offsets, weights=None):
+  if not torch.is_grad_enabled() or not params.requires_grad:
+    return cuembed_forward(params, idx, offsets, weights)
+  return _CuEmbEmbedding.apply(params, idx, offsets, weights)
+
+# Fake registrations let torch.compile run shape propagation for the custom
+# torch.ops calls without executing the CUDA kernels.
+@torch.library.register_fake("cuembed_pyt::cuembed_extract_row_ids_from_csr")
+def _(offsets, nnz):
+  return torch.empty((nnz,), device=offsets.device, dtype=offsets.dtype)
+
+@torch.library.register_fake("cuembed_pyt::cuembed_transpose")
+def _(rows, cols, weights=None):
+  transpose_rows = torch.empty_like(rows)
+  transpose_cols = torch.empty_like(cols)
+  transpose_weights_size = 0 if weights is None else cols.shape[0]
+  transpose_weights = torch.empty(
+      (transpose_weights_size,), device=rows.device, dtype=torch.float32)
+  return transpose_rows, transpose_cols, transpose_weights
+
+@torch.library.register_fake("cuembed_pyt::cuembed_embedding_forward")
+def _(params, idx, offsets, weights=None, mode="sum"):
   batch_size = offsets.shape[0] - 1
   embedding_dim = params.shape[1]
   return torch.empty((batch_size, embedding_dim), device=params.device, dtype=params.dtype)
 
-
-cuemb_embedding.register_autograd(cuembed_backward, setup_context=setup_context)
+@torch.library.register_fake("cuembed_pyt::cuembed_embedding_backward")
+def _(y_grad, num_categories, transpose_indices, transpose_sample_ids, transpose_weights=None):
+  embed_width = y_grad.shape[1]
+  return torch.empty((num_categories, embed_width), device=y_grad.device, dtype=y_grad.dtype)
