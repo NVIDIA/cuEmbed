@@ -33,6 +33,45 @@ def test_cuembed(embedding_bag, indices, offsets, weights):
     # might not be exactly equal because cuEmbed uses atomics in back pass
     print('bprop test pass = ', torch.allclose(grad_res, grad_ref), '\n')
 
+def test_cuembed_inference(embedding_bag, indices, offsets):
+    # Exercises the no-autograd fast path added with the autograd.Function
+    # interface: cuemb_embedding skips _CuEmbEmbedding.apply when grad is
+    # disabled or the params don't require grad, calling the op directly.
+    ref = embedding_bag(indices, offsets)
+
+    with torch.no_grad():
+        res_nograd = cuemb_embedding(embedding_bag.weight, indices, offsets)
+    # frozen weights: grad still enabled, but params.requires_grad is False
+    res_frozen = cuemb_embedding(embedding_bag.weight.detach(), indices, offsets)
+
+    print('inference no_grad test pass = ', torch.allclose(res_nograd, ref))
+    print('inference frozen-weight test pass = ', torch.allclose(res_frozen, ref))
+    # fast path must not build an autograd graph
+    print('inference no-grad-graph test pass = ', not res_nograd.requires_grad, '\n')
+
+def test_cuembed_noncontiguous(embedding_bag, indices, offsets):
+    # non-contiguous inputs exercise the .contiguous() handling in fwd/bwd
+    weight = embedding_bag.weight
+    d = weight.shape[1]
+    w_nc = torch.cat([weight, weight], dim=1).detach()[:, :d]
+    idx_nc = torch.stack([indices, indices], dim=1).reshape(-1)[::2]
+    assert not w_nc.is_contiguous() and not idx_nc.is_contiguous()
+
+    ref = embedding_bag(indices, offsets)
+    with torch.no_grad():
+        res = cuemb_embedding(w_nc, idx_nc, offsets)
+    print('non-contiguous fprop test pass = ', torch.allclose(res, ref))
+
+    grad_mask = torch.ones(ref.shape[0], 2 * d, device=ref.device)[:, ::2]
+    assert not grad_mask.is_contiguous()
+    weight.grad = None
+    (cuemb_embedding(weight, idx_nc, offsets) * grad_mask).sum().backward()
+    grad_res = weight.grad.clone()
+    weight.grad = None
+    (embedding_bag(indices, offsets) * grad_mask).sum().backward()
+    grad_ref = weight.grad.clone()
+    print('non-contiguous bprop test pass = ', torch.allclose(grad_res, grad_ref), '\n')
+
 def test_cuembed_compile():
     print("\nTesting cuembed with torch.compile...")
 
@@ -69,6 +108,27 @@ def test_cuembed_compile():
     print(f"Actual shape: {res.shape}")
     print(f"Shape test pass: {res.shape == ref.shape}")
     print(f"Value test pass: {torch.allclose(res, ref)}")
+
+def test_cuembed_compile_backward():
+    print("\nTesting cuembed with torch.compile (training/backward)...")
+    k, d, n = 958, 16, 4096
+    eb = nn.EmbeddingBag(k, d, mode='sum', include_last_offset=True,
+                         dtype=torch.float32).to('cuda')
+    indices = torch.randint(0, k, (n,), device='cuda', dtype=torch.long)
+    offsets = torch.arange(0, n + 1, device='cuda', dtype=torch.long)
+
+    def run(weight):
+        return cuemb_embedding(weight, indices, offsets)
+
+    w_ref = eb.weight.detach().clone().requires_grad_(True)
+    run(w_ref).sum().backward()
+    g_ref = w_ref.grad.clone()
+
+    w_c = eb.weight.detach().clone().requires_grad_(True)
+    torch.compile(run)(w_c).sum().backward()
+    g_c = w_c.grad.clone()
+
+    print(f"compile backward grad test pass: {torch.allclose(g_ref, g_c, atol=1e-4)}")
 
 # test cases
 k = 958
@@ -111,5 +171,12 @@ weights = torch.rand([n], device='cuda', dtype=torch.float32)
 test_cuembed(embedding_bag, indices, offsets, weights)
 test_cuembed(embedding_bag, indices, offsets, None)
 
-# Run compile test
+# Run inference fast-path test
+test_cuembed_inference(embedding_bag, indices, offsets)
+
+# Run non-contiguous input test
+test_cuembed_noncontiguous(embedding_bag, indices, offsets)
+
+# Run compile tests
 test_cuembed_compile()
+test_cuembed_compile_backward()
