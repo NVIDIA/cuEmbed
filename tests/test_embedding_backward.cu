@@ -20,6 +20,8 @@
 #include <cuda_fp16.h>
 #include <thrust/universal_vector.h>
 
+#include <vector>
+
 #include "absl/log/check.h"
 #include "absl/strings/str_format.h"
 #include "cuembed/include/embedding_lookup.cuh"
@@ -295,5 +297,62 @@ INSTANTIATE_TYPED_TEST_SUITE_P(
     EmbeddingBackwardRefTest,
     EmbedTestTypes,
     utils::EmbeddingRefTestNames<EmbeddingBackwardRefTestNameGlobal>);
+
+TEST(EmbeddingBackwardLargeTest, OffsetsBeyondInt32) {
+  using IndexT = int64_t;
+  const int embed_width = 128;
+  const int64_t num_rows = (int64_t{1} << 31) / embed_width + 1;
+  const size_t buf_bytes = num_rows * embed_width * sizeof(float);
+  size_t free_bytes = 0, total_bytes = 0;
+  CHECK_EQ(cudaMemGetInfo(&free_bytes, &total_bytes), cudaSuccess);
+  if (free_bytes < 2 * buf_bytes + (size_t{1} << 30)) {
+    GTEST_SKIP() << "needs " << 2 * buf_bytes << " bytes of free GPU memory";
+  }
+
+  float* grad_y = nullptr;
+  float* grad_embedding = nullptr;
+  IndexT* indices = nullptr;
+  CHECK_EQ(cudaMalloc(&grad_y, buf_bytes), cudaSuccess);
+  CHECK_EQ(cudaMalloc(&grad_embedding, buf_bytes), cudaSuccess);
+  CHECK_EQ(cudaMalloc(&indices, 2 * sizeof(IndexT)), cudaSuccess);
+
+  const IndexT last = num_rows - 1;
+  std::vector<float> row(embed_width);
+  for (int i = 0; i < embed_width; i++) row[i] = static_cast<float>(i + 1);
+  CHECK_EQ(cudaMemcpy(grad_y + last * embed_width,
+                      row.data(),
+                      embed_width * sizeof(float),
+                      cudaMemcpyHostToDevice),
+           cudaSuccess);
+  const IndexT h_indices[2] = {last, last};
+  CHECK_EQ(
+      cudaMemcpy(indices, h_indices, sizeof(h_indices), cudaMemcpyHostToDevice),
+      cudaSuccess);
+
+  EmbeddingBackward<float, IndexT>(grad_y,
+                                   embed_width,
+                                   num_rows,
+                                   1,
+                                   indices,
+                                   indices + 1,
+                                   nullptr,
+                                   nullptr,
+                                   false,
+                                   grad_embedding,
+                                   nullptr);
+  CHECK_EQ(cudaDeviceSynchronize(), cudaSuccess);
+
+  std::vector<float> result(embed_width);
+  CHECK_EQ(cudaMemcpy(result.data(),
+                      grad_embedding + last * embed_width,
+                      embed_width * sizeof(float),
+                      cudaMemcpyDeviceToHost),
+           cudaSuccess);
+  EXPECT_EQ(result, row);
+
+  CHECK_EQ(cudaFree(grad_y), cudaSuccess);
+  CHECK_EQ(cudaFree(grad_embedding), cudaSuccess);
+  CHECK_EQ(cudaFree(indices), cudaSuccess);
+}
 
 }  // namespace cuembed
