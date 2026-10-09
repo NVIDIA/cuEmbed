@@ -200,8 +200,8 @@ __device__ __forceinline__ void EmbeddingBackwardImpl(
 
   // For each nonzero assigned to this block
   for (int i = 0; i < index_loader.GetBlockNnz(); i++) {
-    int row = index_loader.GetIndex(i);
-    int col = index_loader.GetSampleId(i);
+    int64_t row = index_loader.GetIndex(i);
+    int64_t col = index_loader.GetSampleId(i);
     bool write_flag = index_loader.ShouldWrite(i);
     bool atomic_flag = index_loader.ShouldAtomic(i);
 

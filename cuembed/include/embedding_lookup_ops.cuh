@@ -608,12 +608,12 @@ class GradAddresser {
   }
 
   __device__ __host__ __forceinline__ const GradVecT* GetGradResultAddress(
-      const int col) {
+      const int64_t col) {
     return reinterpret_cast<const GradVecT*>(grad_y_ + col * embed_width_);
   }
 
   __device__ __host__ __forceinline__ GradVecT* GetGradEmbeddingAddress(
-      const int row) {
+      const int64_t row) {
     return reinterpret_cast<GradVecT*>(grad_embedding_ + row * embed_width_);
   }
 
