@@ -312,7 +312,7 @@ class Combiner<InputVecT, ReduceVecT, OutputVecT, CombineMode::kConcat> {
 
   __device__ __host__ __forceinline__ void OutputForConcatIfNeeded(
       OutputVecT* output) const {
-    *output = tmp_;
+    *output = VecCast<OutputVecT, InputVecT>(tmp_);
   }
   __device__ __host__ __forceinline__ void OutputForReductionIfNeeded(
       OutputVecT* output) const {}

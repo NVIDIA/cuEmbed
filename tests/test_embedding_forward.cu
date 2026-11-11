@@ -239,4 +239,78 @@ INSTANTIATE_TYPED_TEST_SUITE_P(
     EmbedTestTypes,
     utils::EmbeddingRefTestNames<ForwardRefTestNameGlobal>);
 
+// The embedding table type (InputT) and the output type (OutputT) may differ.
+// Compare every combine mode against the CPU reference for both directions of
+// the fp16 <-> fp32 conversion and for each load vector width.
+template <typename InputT, typename OutputT>
+void CheckMixedTypeForward(const int embed_width) {
+  const int num_categories = 5;
+  const int batch_size = 2;
+  const int hotness = 2;
+  thrust::universal_vector<InputT> embedding(num_categories * embed_width);
+  for (int i = 0; i < num_categories * embed_width; ++i) {
+    embedding.data().get()[i] = static_cast<InputT>(static_cast<float>(i % 13));
+  }
+  thrust::universal_vector<int32_t> indices{1, 3, 0, 4};
+  thrust::universal_vector<int> offsets{0, 2, 4};
+  thrust::universal_vector<InputT> weights{1.f, 0.5f, 1.f, 0.5f};
+  for (const auto mode :
+       {CombineMode::kSum, CombineMode::kMean, CombineMode::kConcat}) {
+    for (const bool is_csr : {false, true}) {
+      for (const bool is_weighted : {false, true}) {
+        if (is_csr && mode == CombineMode::kConcat) continue;
+        if (is_weighted && mode != CombineMode::kSum) continue;
+        const int* offsets_ptr = is_csr ? offsets.data().get() : nullptr;
+        const InputT* weights_ptr =
+            is_weighted ? weights.data().get() : nullptr;
+        const int num_hots = is_csr ? 0 : hotness;
+        const int out_rows =
+            (mode == CombineMode::kConcat) ? batch_size * hotness : batch_size;
+        thrust::universal_vector<OutputT> result(out_rows * embed_width);
+        thrust::universal_vector<OutputT> reference(out_rows * embed_width);
+        EmbeddingForwardCpu<InputT, OutputT, int32_t, int, false>(
+            embedding.data().get(),
+            embed_width,
+            batch_size,
+            num_hots,
+            indices.data().get(),
+            offsets_ptr,
+            weights_ptr,
+            reference.data().get(),
+            mode);
+        EmbeddingForward<InputT, OutputT, int32_t, int, false>(
+            embedding.data().get(),
+            embed_width,
+            indices.data().get(),
+            offsets_ptr,
+            weights_ptr,
+            batch_size,
+            num_hots,
+            mode,
+            result.data().get());
+        CHECK_CUDA(cudaDeviceSynchronize());
+        for (size_t i = 0; i < result.size(); ++i) {
+          EXPECT_EQ(static_cast<float>(result.data().get()[i]),
+                    static_cast<float>(reference.data().get()[i]))
+              << "embed_width " << embed_width << ", mode "
+              << static_cast<int>(mode) << ", csr " << is_csr << ", weighted "
+              << is_weighted << ", element " << i;
+        }
+      }
+    }
+  }
+}
+
+TEST(EmbeddingForwardMixedTypeTest, HalfInputFloatOutput) {
+  for (const int embed_width : {2, 4, 64}) {
+    CheckMixedTypeForward<__half, float>(embed_width);
+  }
+}
+
+TEST(EmbeddingForwardMixedTypeTest, FloatInputHalfOutput) {
+  for (const int embed_width : {2, 4, 64}) {
+    CheckMixedTypeForward<float, __half>(embed_width);
+  }
+}
+
 }  // namespace cuembed
