@@ -147,7 +147,7 @@ void TransposeWeighted(const IndexT* rows,
                        char* work,
                        size_t* lwork,
                        const cudaStream_t stream = 0) {
-  size_t buffer_bytes = 2 * nnz * sizeof(WeightTuple<IndexT, WeightT>);
+  size_t buffer_bytes = size_t{2} * nnz * sizeof(WeightTuple<IndexT, WeightT>);
 
   WeightTuple<IndexT, WeightT>* vals_in =
       reinterpret_cast<WeightTuple<IndexT, WeightT>*>(work);

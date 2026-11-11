@@ -163,4 +163,26 @@ INSTANTIATE_TYPED_TEST_SUITE_P(
     EmbedTestTypes,
     utils::EmbeddingRefTestNames<TransposeRefTestNameGlobal>);
 
+// The weighted workspace holds two nnz-length arrays of (index, weight) tuples.
+// For nnz >= 2^30, 2 * nnz no longer fits in an int, so the size must be
+// computed in size_t. Only the workspace query runs; no large buffers are used.
+TEST(TransposeWorkspaceTest, WeightedQueryLargeNnz) {
+  const int nnz = 1 << 30;
+  thrust::universal_vector<float> weights(1);
+  size_t lwork = 0;
+  Transpose<int32_t, float>(nullptr,
+                            nullptr,
+                            weights.data().get(),
+                            nnz,
+                            nullptr,
+                            nullptr,
+                            nullptr,
+                            nullptr,
+                            &lwork);
+  const size_t tuple_bytes =
+      size_t{2} * nnz * sizeof(WeightTuple<int32_t, float>);
+  EXPECT_GE(lwork, tuple_bytes);
+  EXPECT_LT(lwork, 4 * tuple_bytes);
+}
+
 }  // namespace cuembed
